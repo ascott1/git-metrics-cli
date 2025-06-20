@@ -103,20 +103,6 @@ async function getPullRequests() {
   return prs;
 }
 
-async function getOpenedPullRequestCount() {
-  const { days } = program.opts();
-  let q = `repo:${owner}/${repo} is:pr`;
-
-  if (days) {
-    const since = new Date();
-    since.setDate(since.getDate() - days);
-    q += ` created:>=${since.toISOString().slice(0, 10)}`;
-  }
-
-  const response = await octokit.search.issuesAndPullRequests({ q });
-  return response.data.total_count;
-}
-
 async function collectMetrics() {
   const prs = await getPullRequests();
   const output = [];
@@ -131,18 +117,46 @@ async function collectMetrics() {
 
     const publishToMerge = merged ? minutesBetween(created, merged) : null;
 
-    const [reviews, comments, events] = await Promise.all([
+    const [reviews, reviewComments, issueComments, events] = await Promise.all([
       octokit.pulls.listReviews({ owner, repo, pull_number: pr.number }),
-      octokit.pulls.listReviewComments({ owner, repo, pull_number: pr.number }),
+      octokit.pulls.listReviewComments({
+        owner,
+        repo,
+        pull_number: pr.number,
+      }),
+      octokit.issues.listComments({ owner, repo, issue_number: pr.number }),
       octokit.issues.listEvents({ owner, repo, issue_number: pr.number }),
     ]);
 
     const firstReview = reviews.data.find(
       (r) => r.user.login !== pr.user.login && r.user.type !== "Bot"
     );
-    const firstComment = comments.data.find(
+
+    // Find the first comment from any source
+    const firstReviewComment = reviewComments.data.find(
       (c) => c.user.login !== pr.user.login && c.user.type !== "Bot"
     );
+    const firstIssueComment = issueComments.data.find(
+      (c) => c.user.login !== pr.user.login && c.user.type !== "Bot"
+    );
+    const firstReviewWithBody = reviews.data.find(
+      (r) => r.user.login !== pr.user.login && r.user.type !== "Bot" && r.body
+    );
+
+    const commentDates = [];
+    if (firstReviewComment) {
+      commentDates.push(new Date(firstReviewComment.created_at));
+    }
+    if (firstIssueComment) {
+      commentDates.push(new Date(firstIssueComment.created_at));
+    }
+    if (firstReviewWithBody) {
+      commentDates.push(new Date(firstReviewWithBody.submitted_at));
+    }
+
+    commentDates.sort((a, b) => a - b);
+    const firstCommentDate = commentDates.length > 0 ? commentDates[0] : null;
+
     const cycleCount = events.data.filter(
       (e) => e.event === "review_requested"
     ).length;
@@ -154,8 +168,8 @@ async function collectMetrics() {
       timeToFirstReview: firstReview
         ? minutesBetween(created, firstReview.submitted_at)
         : null,
-      timeToFirstComment: firstComment
-        ? minutesBetween(created, firstComment.created_at)
+      timeToFirstComment: firstCommentDate
+        ? minutesBetween(created, firstCommentDate)
         : null,
       reviewCycles: cycleCount,
     });
@@ -202,11 +216,9 @@ async function saveResults(data) {
     }...
 `
   );
-  const [metrics, openedPrCount] = await Promise.all([
-    collectMetrics(),
-    getOpenedPullRequestCount(),
-  ]);
+  const metrics = await collectMetrics();
 
+  const openedPrCount = metrics.length;
   const publishToMerge = metrics.map((m) => m.publishToMerge).filter(Boolean);
   const timeToFirstReview = metrics
     .map((m) => m.timeToFirstReview)
