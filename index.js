@@ -27,8 +27,8 @@ if (!process.env.GITHUB_TOKEN) {
 
 const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 
-const hoursBetween = (start, end) =>
-  (new Date(end) - new Date(start)) / 1000 / 3600;
+const minutesBetween = (start, end) =>
+  (new Date(end) - new Date(start)) / 1000 / 60;
 const median = (arr) => arr.sort((a, b) => a - b)[Math.floor(arr.length / 2)];
 const average = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
 
@@ -89,7 +89,7 @@ async function collectMetrics() {
     const created = pr.created_at;
     const merged = pr.merged_at;
 
-    const publishToMerge = hoursBetween(created, merged);
+    const publishToMerge = minutesBetween(created, merged);
 
     const [reviews, comments, events] = await Promise.all([
       octokit.pulls.listReviews({ owner, repo, pull_number: pr.number }),
@@ -98,10 +98,10 @@ async function collectMetrics() {
     ]);
 
     const firstReview = reviews.data.find(
-      (r) => r.user.login !== pr.user.login
+      (r) => r.user.login !== pr.user.login && r.user.type !== "Bot"
     );
     const firstComment = comments.data.find(
-      (c) => c.user.login !== pr.user.login
+      (c) => c.user.login !== pr.user.login && c.user.type !== "Bot"
     );
     const cycleCount = events.data.filter(
       (e) => e.event === "review_requested"
@@ -112,10 +112,10 @@ async function collectMetrics() {
       title: pr.title,
       publishToMerge,
       waitToFirstReview: firstReview
-        ? hoursBetween(created, firstReview.submitted_at)
+        ? minutesBetween(created, firstReview.submitted_at)
         : null,
       reviewResponseTime: firstComment
-        ? hoursBetween(created, firstComment.created_at)
+        ? minutesBetween(created, firstComment.created_at)
         : null,
       reviewCycles: cycleCount,
     });
@@ -143,9 +143,9 @@ async function saveResults(data) {
     header: [
       { id: "number", title: "PR Number" },
       { id: "title", title: "Title" },
-      { id: "publishToMerge", title: "Publish to Merge (hrs)" },
-      { id: "waitToFirstReview", title: "Wait to First Review (hrs)" },
-      { id: "reviewResponseTime", title: "Review Response Time (hrs)" },
+      { id: "publishToMerge", title: "Publish to Merge (mins)" },
+      { id: "waitToFirstReview", title: "Wait to First Review (mins)" },
+      { id: "reviewResponseTime", title: "Review Response Time (mins)" },
       { id: "reviewCycles", title: "Review Cycles" },
     ],
   });
@@ -174,13 +174,13 @@ async function saveResults(data) {
 
   console.log("📈 Summary:");
   console.log(
-    `Median Publish to Merge: ${median(publishToMerge).toFixed(2)} hrs`
+    `Median Publish to Merge: ${median(publishToMerge).toFixed(2)} mins`
   );
   console.log(
-    `Median Wait to First Review: ${median(waitToFirstReview).toFixed(2)} hrs`
+    `Median Wait to First Review: ${median(waitToFirstReview).toFixed(2)} mins`
   );
   console.log(
-    `Median Review Response Time: ${median(reviewResponseTime).toFixed(2)} hrs`
+    `Median Review Response Time: ${median(reviewResponseTime).toFixed(2)} mins`
   );
   console.log(`Average Review Cycles: ${average(reviewCycles).toFixed(2)}`);
 
