@@ -80,6 +80,20 @@ async function getMergedPullRequests() {
   return prs;
 }
 
+async function getOpenedPullRequestCount() {
+  const { days } = program.opts();
+  let q = `repo:${owner}/${repo} is:pr`;
+
+  if (days) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    q += ` created:>=${since.toISOString().slice(0, 10)}`;
+  }
+
+  const response = await octokit.search.issuesAndPullRequests({ q });
+  return response.data.total_count;
+}
+
 async function collectMetrics() {
   const prs = await getMergedPullRequests();
   const output = [];
@@ -162,9 +176,13 @@ async function saveResults(data) {
   console.log(
     `Starting metric collection for ${owner}/${repo}${
       days ? ` (last ${days} days)` : ""
-    }...\n`
+    }...
+`
   );
-  const metrics = await collectMetrics();
+  const [metrics, openedPrCount] = await Promise.all([
+    collectMetrics(),
+    getOpenedPullRequestCount(),
+  ]);
 
   const publishToMerge = metrics.map((m) => m.publishToMerge).filter(Boolean);
   const timeToFirstReview = metrics
@@ -196,6 +214,8 @@ async function saveResults(data) {
   };
 
   console.log("📈 Summary:");
+  console.log(`Total PRs Opened: ${openedPrCount}`);
+  console.log(`Total PRs Merged: ${metrics.length}`);
   console.log(
     `Median Publish to Merge: ${formatDuration(median(publishToMerge))}`
   );
