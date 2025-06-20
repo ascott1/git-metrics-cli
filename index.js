@@ -31,7 +31,7 @@ async function main() {
     console.log(`\nFiltered out ${initialCount - allPRs.length} hotfix PRs.`);
   }
 
-  const metrics = calculateMetrics(allPRs);
+  const metrics = calculateMetrics(allPRs, options);
 
   printSummary(metrics, allPRs);
   await saveResults(metrics, options);

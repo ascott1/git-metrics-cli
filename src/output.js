@@ -39,6 +39,7 @@ async function saveResults(data, options) {
       { id: "title", title: "Title" },
       { id: "state", title: "State" },
       { id: "ciPassed", title: "CI Passed" },
+      { id: "isLarge", title: "Is Large PR" },
       { id: "publishToMerge", title: "Publish to Merge (mins)" },
       { id: "leadTimeForChanges", title: "Lead Time for Changes (mins)" },
       { id: "timeToFirstReview", title: "Time to First Review (mins)" },
@@ -60,6 +61,7 @@ function printSummary(metrics, allPRs) {
   const mergedWithoutCIPassingCount = metrics.filter(
     (m) => m.state === "MERGED" && !m.ciPassed
   ).length;
+  const largePrCount = metrics.filter((m) => m.isLarge).length;
   const publishToMerge = metrics.map((m) => m.publishToMerge).filter(Boolean);
   const leadTimeForChanges = metrics
     .map((m) => m.leadTimeForChanges)
@@ -98,6 +100,7 @@ function printSummary(metrics, allPRs) {
   console.log(`Total PRs Merged: ${mergedPrCount}`);
   console.log(`Total PRs Closed (not merged): ${closedNotMergedCount}`);
   console.log(`PRs Merged Without CI Passing: ${mergedWithoutCIPassingCount}`);
+  console.log(`Total Large PRs: ${largePrCount}`);
   console.log(
     `Median Publish to Merge: ${formatDuration(median(publishToMerge))}`
   );

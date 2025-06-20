@@ -32,6 +32,9 @@ async function fetchPullRequests(owner, repo, days) {
             createdAt
             mergedAt
             state
+            additions
+            deletions
+            changedFiles
             author {
               login
             }

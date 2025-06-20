@@ -1,7 +1,7 @@
 const minutesBetween = (start, end) =>
   (new Date(end) - new Date(start)) / 1000 / 60;
 
-function calculateMetrics(allPRs) {
+function calculateMetrics(allPRs, options) {
   console.log("\nProcessing metrics...");
   const metrics = allPRs.map((pr, index) => {
     process.stdout.write(
@@ -65,6 +65,11 @@ function calculateMetrics(allPRs) {
     const lastCommit = pr.lastCommit.nodes[0]?.commit;
     const ciStatus = lastCommit?.statusCheckRollup?.state;
 
+    const totalLinesChanged = pr.additions + pr.deletions;
+    const isLarge =
+      totalLinesChanged >= options.largeLocThreshold ||
+      pr.changedFiles > options.largeFilesThreshold;
+
     return {
       number: pr.number,
       title: pr.title,
@@ -79,6 +84,7 @@ function calculateMetrics(allPRs) {
       reviewCycles: cycleCount,
       state: pr.state,
       ciPassed: ciStatus === "SUCCESS",
+      isLarge,
     };
   });
   process.stdout.write("\n\n");

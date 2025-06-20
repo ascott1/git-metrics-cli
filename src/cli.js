@@ -13,6 +13,18 @@ function parseOptions() {
     .option(
       "--exclude-hotfixes",
       'Exclude pull requests with "hotfix" in the title'
+    )
+    .option(
+      "--large-loc-threshold <lines>",
+      "Number of lines of code (additions + deletions) to consider a PR large",
+      parseInt,
+      400
+    )
+    .option(
+      "--large-files-threshold <files>",
+      "Number of changed files to consider a PR large",
+      parseInt,
+      15
     );
   program.parse(process.argv);
   return program.opts();
