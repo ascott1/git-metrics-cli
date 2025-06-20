@@ -40,32 +40,40 @@ async function getMergedPullRequests() {
     console.log(`(Looking back ${days} days)`);
   }
 
+  const since = days ? new Date() : null;
+  if (since) {
+    since.setDate(since.getDate() - days);
+  }
+
+  let keepFetching = true;
+
   for await (const response of octokit.paginate.iterator(octokit.pulls.list, {
     owner,
     repo,
     state: "closed",
     per_page: 100,
   })) {
+    if (!keepFetching) break;
+
     const merged = response.data.filter((pr) => pr.merged_at);
-    prs.push(...merged);
+
+    for (const pr of merged) {
+      if (since && new Date(pr.created_at) < since) {
+        keepFetching = false;
+        break;
+      }
+      prs.push(pr);
+    }
+
     process.stdout.write(`\rFetched ${prs.length} pull requests...`);
   }
   process.stdout.write("\n");
 
-  if (days) {
-    const since = new Date();
-    since.setDate(since.getDate() - days);
-    const filteredPrs = prs.filter((pr) => new Date(pr.created_at) >= since);
-    console.log(
-      `Found ${prs.length} total merged pull requests, filtering to the last ${days} days.`
-    );
-    console.log(
-      `Found ${filteredPrs.length} merged pull requests in that time.`
-    );
-    return filteredPrs;
-  }
-
-  console.log(`Found ${prs.length} total merged pull requests.`);
+  console.log(
+    `Found ${prs.length} merged pull requests${
+      days ? ` in the last ${days} days` : ""
+    }.`
+  );
   return prs;
 }
 
