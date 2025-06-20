@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 require("dotenv").config();
-const { Octokit } = require("@octokit/rest");
+const { graphql } = require("@octokit/graphql");
 const { Command } = require("commander");
 const fs = require("fs");
 const createCsvWriter = require("csv-writer").createObjectCsvWriter;
@@ -28,154 +28,185 @@ if (!process.env.GITHUB_TOKEN) {
   process.exit(1);
 }
 
-const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
-
 const minutesBetween = (start, end) =>
   (new Date(end) - new Date(start)) / 1000 / 60;
 const median = (arr) => arr.sort((a, b) => a - b)[Math.floor(arr.length / 2)];
 const average = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
 
-async function getPullRequests() {
+async function fetchMetricsWithGraphQL() {
   const { days } = program.opts();
-  const prs = [];
-  console.log("Fetching open and merged pull requests...");
+  const [owner, repo] = program.opts().repo.split("/");
+
+  let searchQuery = `repo:${owner}/${repo} is:pr`;
   if (days) {
-    console.log(`(Looking back ${days} days)`);
-  }
-
-  const since = days ? new Date() : null;
-  if (since) {
+    const since = new Date();
     since.setDate(since.getDate() - days);
+    searchQuery += ` created:>=${since.toISOString().slice(0, 10)}`;
   }
 
-  let keepFetching = true;
+  console.log("Fetching pull request data with GraphQL...");
+  console.log(`(Query: ${searchQuery})`);
 
-  // Fetch merged pull requests
-  for await (const response of octokit.paginate.iterator(octokit.pulls.list, {
-    owner,
-    repo,
-    state: "closed",
-    per_page: 100,
-  })) {
-    if (!keepFetching) break;
+  const graphqlWithAuth = graphql.defaults({
+    headers: {
+      authorization: `token ${process.env.GITHUB_TOKEN}`,
+    },
+  });
 
-    const merged = response.data.filter((pr) => pr.merged_at);
-
-    for (const pr of merged) {
-      if (since && new Date(pr.created_at) < since) {
-        keepFetching = false;
-        break;
+  const query = /* GraphQL */ `
+    query ($searchQuery: String!, $cursor: String) {
+      search(query: $searchQuery, type: ISSUE, first: 50, after: $cursor) {
+        pageInfo {
+          endCursor
+          hasNextPage
+        }
+        nodes {
+          __typename
+          ... on PullRequest {
+            number
+            title
+            createdAt
+            mergedAt
+            state
+            author {
+              login
+            }
+            reviews(first: 10) {
+              nodes {
+                author {
+                  login
+                  __typename
+                }
+                submittedAt
+                body
+              }
+            }
+            comments(first: 10) {
+              nodes {
+                author {
+                  login
+                  __typename
+                }
+                createdAt
+              }
+            }
+            reviewThreads(first: 10) {
+              nodes {
+                comments(first: 10) {
+                  nodes {
+                    author {
+                      login
+                      __typename
+                    }
+                    createdAt
+                  }
+                }
+              }
+            }
+            timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], first: 100) {
+              totalCount
+            }
+          }
+        }
       }
-      prs.push(pr);
     }
+  `;
 
-    process.stdout.write(`\rFetched ${prs.length} pull requests...`);
-  }
+  let allPRs = [];
+  let hasNextPage = true;
+  let cursor = null;
+  let pageCount = 0;
 
-  // Fetch open pull requests
-  keepFetching = true;
-  for await (const response of octokit.paginate.iterator(octokit.pulls.list, {
-    owner,
-    repo,
-    state: "open",
-    per_page: 100,
-  })) {
-    if (!keepFetching) break;
+  while (hasNextPage) {
+    const response = await graphqlWithAuth(query, {
+      searchQuery,
+      cursor,
+    });
+    pageCount++;
+    process.stdout.write(`\rFetched page ${pageCount}...`);
 
-    for (const pr of response.data) {
-      if (since && new Date(pr.created_at) < since) {
-        keepFetching = false;
-        break;
-      }
-      prs.push(pr);
-    }
-
-    process.stdout.write(`\rFetched ${prs.length} pull requests...`);
-  }
-
-  process.stdout.write("\n");
-
-  console.log(
-    `Found ${prs.length} total open and merged pull requests${
-      days ? ` in the last ${days} days` : ""
-    }.`
-  );
-  return prs;
-}
-
-async function collectMetrics() {
-  const prs = await getPullRequests();
-  const output = [];
-
-  console.log("\nCollecting metrics for each pull request...");
-  for (const [index, pr] of prs.entries()) {
-    process.stdout.write(
-      `\r(${index + 1}/${prs.length}) Processing PR #${pr.number}`
+    const prs = response.search.nodes.filter(
+      (pr) => pr.__typename === "PullRequest"
     );
-    const created = pr.created_at;
-    const merged = pr.merged_at;
+    allPRs = allPRs.concat(prs);
+
+    hasNextPage = response.search.pageInfo.hasNextPage;
+    cursor = response.search.pageInfo.endCursor;
+  }
+  process.stdout.write("\n");
+  console.log(`Found ${allPRs.length} total pull requests.`);
+
+  console.log("\nProcessing metrics...");
+  const metrics = allPRs.map((pr, index) => {
+    process.stdout.write(
+      `\r(${index + 1}/${allPRs.length}) Processing PR #${pr.number}`
+    );
+    const created = pr.createdAt;
+    const merged = pr.mergedAt;
+    const author = pr.author ? pr.author.login : null;
 
     const publishToMerge = merged ? minutesBetween(created, merged) : null;
 
-    const [reviews, reviewComments, issueComments, events] = await Promise.all([
-      octokit.pulls.listReviews({ owner, repo, pull_number: pr.number }),
-      octokit.pulls.listReviewComments({
-        owner,
-        repo,
-        pull_number: pr.number,
-      }),
-      octokit.issues.listComments({ owner, repo, issue_number: pr.number }),
-      octokit.issues.listEvents({ owner, repo, issue_number: pr.number }),
-    ]);
-
-    const firstReview = reviews.data.find(
-      (r) => r.user.login !== pr.user.login && r.user.type !== "Bot"
-    );
-
-    // Find the first comment from any source
-    const firstReviewComment = reviewComments.data.find(
-      (c) => c.user.login !== pr.user.login && c.user.type !== "Bot"
-    );
-    const firstIssueComment = issueComments.data.find(
-      (c) => c.user.login !== pr.user.login && c.user.type !== "Bot"
-    );
-    const firstReviewWithBody = reviews.data.find(
-      (r) => r.user.login !== pr.user.login && r.user.type !== "Bot" && r.body
+    const firstReview = pr.reviews.nodes.find(
+      (r) =>
+        r.author && r.author.login !== author && r.author.__typename !== "Bot"
     );
 
     const commentDates = [];
-    if (firstReviewComment) {
-      commentDates.push(new Date(firstReviewComment.created_at));
-    }
+    // Issue Comments
+    const firstIssueComment = pr.comments.nodes.find(
+      (c) =>
+        c.author && c.author.login !== author && c.author.__typename !== "Bot"
+    );
     if (firstIssueComment) {
-      commentDates.push(new Date(firstIssueComment.created_at));
+      commentDates.push(new Date(firstIssueComment.createdAt));
     }
+
+    // Review Comments (line comments)
+    const reviewComments = pr.reviewThreads.nodes.flatMap(
+      (thread) => thread.comments.nodes
+    );
+    const firstReviewComment = reviewComments.find(
+      (c) =>
+        c.author && c.author.login !== author && c.author.__typename !== "Bot"
+    );
+    if (firstReviewComment) {
+      commentDates.push(new Date(firstReviewComment.createdAt));
+    }
+
+    // Review bodies
+    const firstReviewWithBody = pr.reviews.nodes.find(
+      (r) =>
+        r.author &&
+        r.author.login !== author &&
+        r.author.__typename !== "Bot" &&
+        r.body
+    );
     if (firstReviewWithBody) {
-      commentDates.push(new Date(firstReviewWithBody.submitted_at));
+      commentDates.push(new Date(firstReviewWithBody.submittedAt));
     }
 
     commentDates.sort((a, b) => a - b);
     const firstCommentDate = commentDates.length > 0 ? commentDates[0] : null;
 
-    const cycleCount = events.data.filter(
-      (e) => e.event === "review_requested"
-    ).length;
+    const cycleCount = pr.timelineItems.totalCount;
 
-    output.push({
+    return {
       number: pr.number,
       title: pr.title,
       publishToMerge,
       timeToFirstReview: firstReview
-        ? minutesBetween(created, firstReview.submitted_at)
+        ? minutesBetween(created, firstReview.submittedAt)
         : null,
       timeToFirstComment: firstCommentDate
         ? minutesBetween(created, firstCommentDate)
         : null,
       reviewCycles: cycleCount,
-    });
-  }
+      state: pr.state,
+    };
+  });
   process.stdout.write("\n\n");
-  return output;
+  return { metrics, allPRs };
 }
 
 async function saveResults(data) {
@@ -216,9 +247,12 @@ async function saveResults(data) {
     }...
 `
   );
-  const metrics = await collectMetrics();
+  const { metrics, allPRs } = await fetchMetricsWithGraphQL();
 
   const openedPrCount = metrics.length;
+  const closedNotMergedCount = allPRs.filter(
+    (pr) => pr.state === "CLOSED" && !pr.mergedAt
+  ).length;
   const publishToMerge = metrics.map((m) => m.publishToMerge).filter(Boolean);
   const timeToFirstReview = metrics
     .map((m) => m.timeToFirstReview)
@@ -251,6 +285,7 @@ async function saveResults(data) {
   console.log("📈 Summary:");
   console.log(`Total PRs Opened: ${openedPrCount}`);
   console.log(`Total PRs Merged: ${publishToMerge.length}`);
+  console.log(`Total PRs Closed (not merged): ${closedNotMergedCount}`);
   console.log(
     `Median Publish to Merge: ${formatDuration(median(publishToMerge))}`
   );

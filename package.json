@@ -9,6 +9,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@octokit/graphql": "^9.0.1",
     "@octokit/rest": "^22.0.0",
     "commander": "^14.0.0",
     "csv-writer": "^1.6.0",
