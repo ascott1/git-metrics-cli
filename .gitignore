@@ -1,0 +1,20 @@
+# minimal Node.js .gitignore file
+# Logs
+logs
+npm-debug.log*
+# Dependency directories
+node_modules/
+# Build directories
+dist/
+# Environment variables
+.env
+# IDEs and editors
+.vscode/
+# OS generated files
+.DS_Store
+# Coverage reports
+coverage/
+# Temporary files
+tmp/
+# Project specific
+metrics/
