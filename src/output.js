@@ -53,7 +53,7 @@ async function saveResults(data, options) {
 
 function printSummary(metrics, allPRs) {
   const openedPrCount = metrics.length;
-  const mergedPrCount = metrics.filter(m => m.state === 'MERGED').length;
+  const mergedPrCount = metrics.filter((m) => m.state === "MERGED").length;
   const closedNotMergedCount = allPRs.filter(
     (pr) => pr.state === "CLOSED" && !pr.mergedAt
   ).length;

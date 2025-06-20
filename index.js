@@ -23,7 +23,14 @@ async function main() {
 `
   );
 
-  const allPRs = await fetchPullRequests(owner, repo, options.days);
+  let allPRs = await fetchPullRequests(owner, repo, options.days);
+
+  if (options.excludeHotfixes) {
+    const initialCount = allPRs.length;
+    allPRs = allPRs.filter((pr) => !pr.title.toLowerCase().includes("hotfix"));
+    console.log(`\nFiltered out ${initialCount - allPRs.length} hotfix PRs.`);
+  }
+
   const metrics = calculateMetrics(allPRs);
 
   printSummary(metrics, allPRs);

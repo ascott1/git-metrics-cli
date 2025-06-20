@@ -9,7 +9,11 @@ function parseOptions() {
       "Number of days to look back for pull requests",
       parseInt
     )
-    .option("--no-date", "Do not append the date to the output filenames");
+    .option("--no-date", "Do not append the date to the output filenames")
+    .option(
+      "--exclude-hotfixes",
+      'Exclude pull requests with "hotfix" in the title'
+    );
   program.parse(process.argv);
   return program.opts();
 }

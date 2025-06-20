@@ -25,6 +25,7 @@ node index.js -r <owner>/<repo> [options]
 
 - `-r, --repo <repo>`: **(Required)** The GitHub repository in the format `owner/repo`.
 - `-d, --days <days>`: (Optional) The number of days to look back for pull requests. If not specified, all pull requests will be fetched.
+- `--exclude-hotfixes`: (Optional) Exclude pull requests with "hotfix" in the title.
 
 ### Examples
 
@@ -35,8 +36,14 @@ node index.js -r <owner>/<repo> [options]
   ```
 
 - Collect metrics for pull requests created in the last 30 days:
+
   ```bash
   node index.js -r microsoft/vscode -d 30
+  ```
+
+- Collect metrics, excluding "hotfix" PRs:
+  ```bash
+  node index.js -r microsoft/vscode --exclude-hotfixes
   ```
 
 ## Output
