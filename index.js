@@ -5,6 +5,9 @@ const { Octokit } = require("@octokit/rest");
 const { Command } = require("commander");
 const fs = require("fs");
 const createCsvWriter = require("csv-writer").createObjectCsvWriter;
+const dayjs = require("dayjs");
+const duration = require("dayjs/plugin/duration");
+dayjs.extend(duration);
 
 const program = new Command();
 program
@@ -111,10 +114,10 @@ async function collectMetrics() {
       number: pr.number,
       title: pr.title,
       publishToMerge,
-      waitToFirstReview: firstReview
+      timeToFirstReview: firstReview
         ? minutesBetween(created, firstReview.submitted_at)
         : null,
-      reviewResponseTime: firstComment
+      timeToFirstComment: firstComment
         ? minutesBetween(created, firstComment.created_at)
         : null,
       reviewCycles: cycleCount,
@@ -144,8 +147,8 @@ async function saveResults(data) {
       { id: "number", title: "PR Number" },
       { id: "title", title: "Title" },
       { id: "publishToMerge", title: "Publish to Merge (mins)" },
-      { id: "waitToFirstReview", title: "Wait to First Review (mins)" },
-      { id: "reviewResponseTime", title: "Review Response Time (mins)" },
+      { id: "timeToFirstReview", title: "Time to First Review (mins)" },
+      { id: "timeToFirstComment", title: "Time to First Comment (mins)" },
       { id: "reviewCycles", title: "Review Cycles" },
     ],
   });
@@ -164,23 +167,45 @@ async function saveResults(data) {
   const metrics = await collectMetrics();
 
   const publishToMerge = metrics.map((m) => m.publishToMerge).filter(Boolean);
-  const waitToFirstReview = metrics
-    .map((m) => m.waitToFirstReview)
+  const timeToFirstReview = metrics
+    .map((m) => m.timeToFirstReview)
     .filter(Boolean);
-  const reviewResponseTime = metrics
-    .map((m) => m.reviewResponseTime)
+  const timeToFirstComment = metrics
+    .map((m) => m.timeToFirstComment)
     .filter(Boolean);
   const reviewCycles = metrics.map((m) => m.reviewCycles).filter(Boolean);
 
+  const formatDuration = (minutes) => {
+    const d = dayjs.duration(minutes, "minutes");
+    const days = Math.floor(d.asDays());
+    const hours = d.hours();
+    const mins = d.minutes();
+
+    let result = "";
+    if (days > 0) {
+      result += `${days}d `;
+    }
+    if (hours > 0) {
+      result += `${hours}h `;
+    }
+    if (mins > 0) {
+      result += `${mins}m`;
+    }
+
+    return result.trim();
+  };
+
   console.log("📈 Summary:");
   console.log(
-    `Median Publish to Merge: ${median(publishToMerge).toFixed(2)} mins`
+    `Median Publish to Merge: ${formatDuration(median(publishToMerge))}`
   );
   console.log(
-    `Median Wait to First Review: ${median(waitToFirstReview).toFixed(2)} mins`
+    `Median Time to First Review: ${formatDuration(median(timeToFirstReview))}`
   );
   console.log(
-    `Median Review Response Time: ${median(reviewResponseTime).toFixed(2)} mins`
+    `Median Time to First Comment: ${formatDuration(
+      median(timeToFirstComment)
+    )}`
   );
   console.log(`Average Review Cycles: ${average(reviewCycles).toFixed(2)}`);
 
