@@ -35,10 +35,10 @@ const minutesBetween = (start, end) =>
 const median = (arr) => arr.sort((a, b) => a - b)[Math.floor(arr.length / 2)];
 const average = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
 
-async function getMergedPullRequests() {
+async function getPullRequests() {
   const { days } = program.opts();
   const prs = [];
-  console.log("Fetching merged pull requests...");
+  console.log("Fetching open and merged pull requests...");
   if (days) {
     console.log(`(Looking back ${days} days)`);
   }
@@ -50,6 +50,7 @@ async function getMergedPullRequests() {
 
   let keepFetching = true;
 
+  // Fetch merged pull requests
   for await (const response of octokit.paginate.iterator(octokit.pulls.list, {
     owner,
     repo,
@@ -70,10 +71,32 @@ async function getMergedPullRequests() {
 
     process.stdout.write(`\rFetched ${prs.length} pull requests...`);
   }
+
+  // Fetch open pull requests
+  keepFetching = true;
+  for await (const response of octokit.paginate.iterator(octokit.pulls.list, {
+    owner,
+    repo,
+    state: "open",
+    per_page: 100,
+  })) {
+    if (!keepFetching) break;
+
+    for (const pr of response.data) {
+      if (since && new Date(pr.created_at) < since) {
+        keepFetching = false;
+        break;
+      }
+      prs.push(pr);
+    }
+
+    process.stdout.write(`\rFetched ${prs.length} pull requests...`);
+  }
+
   process.stdout.write("\n");
 
   console.log(
-    `Found ${prs.length} merged pull requests${
+    `Found ${prs.length} total open and merged pull requests${
       days ? ` in the last ${days} days` : ""
     }.`
   );
@@ -95,7 +118,7 @@ async function getOpenedPullRequestCount() {
 }
 
 async function collectMetrics() {
-  const prs = await getMergedPullRequests();
+  const prs = await getPullRequests();
   const output = [];
 
   console.log("\nCollecting metrics for each pull request...");
@@ -106,7 +129,7 @@ async function collectMetrics() {
     const created = pr.created_at;
     const merged = pr.merged_at;
 
-    const publishToMerge = minutesBetween(created, merged);
+    const publishToMerge = merged ? minutesBetween(created, merged) : null;
 
     const [reviews, comments, events] = await Promise.all([
       octokit.pulls.listReviews({ owner, repo, pull_number: pr.number }),
@@ -215,7 +238,7 @@ async function saveResults(data) {
 
   console.log("📈 Summary:");
   console.log(`Total PRs Opened: ${openedPrCount}`);
-  console.log(`Total PRs Merged: ${metrics.length}`);
+  console.log(`Total PRs Merged: ${publishToMerge.length}`);
   console.log(
     `Median Publish to Merge: ${formatDuration(median(publishToMerge))}`
   );
