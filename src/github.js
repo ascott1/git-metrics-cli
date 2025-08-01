@@ -121,4 +121,76 @@ async function fetchPullRequests(owner, repo, days) {
   return allPRs;
 }
 
-module.exports = { fetchPullRequests };
+async function fetchIssues(owner, repo, labels, days) {
+  const labelArray = labels.split(",").map((label) => label.trim());
+
+  // Build search query for issues
+  let searchQuery = `repo:${owner}/${repo} is:issue is:closed`;
+  if (days) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    searchQuery += ` closed:>=${since.toISOString().slice(0, 10)}`;
+  }
+
+  console.log("Fetching issue data with GraphQL...");
+  console.log(`(Query: ${searchQuery})`);
+  console.log(`Looking for labels: ${labelArray.join(", ")}`);
+
+  const query = /* GraphQL */ `
+    query ($searchQuery: String!, $cursor: String) {
+      search(query: $searchQuery, type: ISSUE, first: 50, after: $cursor) {
+        pageInfo {
+          endCursor
+          hasNextPage
+        }
+        nodes {
+          __typename
+          ... on Issue {
+            number
+            title
+            createdAt
+            closedAt
+            state
+            author {
+              login
+            }
+            labels(first: 20) {
+              nodes {
+                name
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  let allIssues = [];
+  let hasNextPage = true;
+  let cursor = null;
+  let pageCount = 0;
+
+  while (hasNextPage) {
+    const response = await graphqlWithAuth(query, {
+      searchQuery,
+      cursor,
+    });
+    pageCount++;
+    process.stdout.write(`\rFetched page ${pageCount}...`);
+
+    const issues = response.search.nodes.filter(
+      (issue) => issue.__typename === "Issue"
+    );
+    allIssues = allIssues.concat(issues);
+
+    hasNextPage = response.search.pageInfo.hasNextPage;
+    cursor = response.search.pageInfo.endCursor;
+  }
+
+  process.stdout.write("\n");
+  console.log(`Found ${allIssues.length} total closed issues.`);
+
+  return { allIssues, targetLabels: labelArray };
+}
+
+module.exports = { fetchPullRequests, fetchIssues };

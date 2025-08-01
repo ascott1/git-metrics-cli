@@ -120,4 +120,96 @@ function printSummary(metrics, allPRs) {
   console.log(`Average Review Cycles: ${average(reviewCycles).toFixed(2)}`);
 }
 
-module.exports = { saveResults, printSummary };
+async function saveIssueResults(data, options) {
+  const { date } = options;
+  const folder = "metrics";
+  const dateSuffix = date ? `-${new Date().toISOString().slice(0, 10)}` : "";
+  const jsonPath = `${folder}/issue-metrics${dateSuffix}.json`;
+  const csvPath = `${folder}/issue-metrics${dateSuffix}.csv`;
+
+  if (!fs.existsSync(folder)) {
+    fs.mkdirSync(folder);
+  }
+
+  fs.writeFileSync(jsonPath, JSON.stringify(data, null, 2));
+  console.log(`\nResults saved to ${jsonPath}`);
+
+  const csvWriter = createCsvWriter({
+    path: csvPath,
+    header: [
+      { id: "number", title: "Issue Number" },
+      { id: "title", title: "Title" },
+      { id: "author", title: "Author" },
+      { id: "createdAt", title: "Created At" },
+      { id: "closedAt", title: "Closed At" },
+      { id: "labels", title: "Labels" },
+    ],
+  });
+
+  const csvData = data.issueDetails.map((issue) => ({
+    ...issue,
+    labels: issue.labels.join(", "),
+  }));
+
+  await csvWriter.writeRecords(csvData);
+  console.log(`Results saved to ${csvPath}`);
+}
+
+function printIssueSummary(issueMetrics) {
+  const {
+    totalClosedIssues,
+    issuesWithAnyTargetLabel,
+    issuesWithAllTargetLabels,
+    labelBreakdown,
+    onlySpecificLabel,
+    targetLabels,
+  } = issueMetrics;
+
+  const percentageAny = (
+    (issuesWithAnyTargetLabel / totalClosedIssues) *
+    100
+  ).toFixed(1);
+  const percentageAll = (
+    (issuesWithAllTargetLabels / totalClosedIssues) *
+    100
+  ).toFixed(1);
+
+  console.log("\n🏷️  Issue Label Analysis:");
+  console.log(`Target Labels: ${targetLabels.join(", ")}`);
+  console.log(`Total Closed Issues: ${totalClosedIssues}`);
+  console.log(
+    `Issues with ANY target label: ${issuesWithAnyTargetLabel} (${percentageAny}%)`
+  );
+
+  if (targetLabels.length > 1) {
+    console.log(
+      `Issues with ALL target labels: ${issuesWithAllTargetLabels} (${percentageAll}%)`
+    );
+  }
+
+  console.log("\n📊 Individual Label Breakdown:");
+  targetLabels.forEach((label) => {
+    const totalWithLabel = labelBreakdown[label];
+    const onlyWithLabel = onlySpecificLabel[label];
+    const percentage = ((totalWithLabel / totalClosedIssues) * 100).toFixed(1);
+    console.log(
+      `  "${label}": ${totalWithLabel} total (${percentage}%), ${onlyWithLabel} with only this label`
+    );
+  });
+
+  if (targetLabels.length > 1) {
+    const withMultipleLabels =
+      issuesWithAnyTargetLabel -
+      Object.values(onlySpecificLabel).reduce((a, b) => a + b, 0);
+    console.log(
+      `\n🔗 Issues with multiple target labels: ${withMultipleLabels}`
+    );
+  }
+}
+
+module.exports = {
+  saveResults,
+  printSummary,
+  saveIssueResults,
+  printIssueSummary,
+};

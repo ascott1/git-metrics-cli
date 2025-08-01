@@ -25,6 +25,11 @@ function parseOptions() {
       "Number of changed files to consider a PR large",
       parseInt,
       15
+    )
+    .option("--issues", "Collect issue metrics instead of pull request metrics")
+    .option(
+      "--labels <labels>",
+      "Comma-separated list of GitHub issue labels to analyze (requires --issues flag)"
     );
   program.parse(process.argv);
   return program.opts();

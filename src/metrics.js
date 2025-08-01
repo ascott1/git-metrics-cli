@@ -91,4 +91,78 @@ function calculateMetrics(allPRs, options) {
   return metrics;
 }
 
-module.exports = { calculateMetrics };
+function calculateIssueMetrics(allIssues, targetLabels) {
+  console.log("\nProcessing issue metrics...");
+
+  // Normalize target labels to lowercase for case-insensitive matching
+  const normalizedTargetLabels = targetLabels.map((label) =>
+    label.toLowerCase()
+  );
+
+  const issuesWithTargetLabels = allIssues.filter((issue) => {
+    const issueLabels = issue.labels.nodes.map((label) =>
+      label.name.toLowerCase()
+    );
+    return normalizedTargetLabels.some((targetLabel) =>
+      issueLabels.includes(targetLabel)
+    );
+  });
+
+  const issuesWithAllLabels = allIssues.filter((issue) => {
+    const issueLabels = issue.labels.nodes.map((label) =>
+      label.name.toLowerCase()
+    );
+    return normalizedTargetLabels.every((targetLabel) =>
+      issueLabels.includes(targetLabel)
+    );
+  }); // Create breakdown by individual labels and combinations
+  const labelBreakdown = {};
+
+  // Individual label counts
+  targetLabels.forEach((label) => {
+    labelBreakdown[label] = allIssues.filter((issue) => {
+      const issueLabels = issue.labels.nodes.map((l) => l.name.toLowerCase());
+      return issueLabels.includes(label.toLowerCase());
+    }).length;
+  });
+
+  // Issues with only specific labels (not combinations)
+  const onlySpecificLabel = {};
+  targetLabels.forEach((label) => {
+    onlySpecificLabel[label] = allIssues.filter((issue) => {
+      const issueLabels = issue.labels.nodes.map((l) => l.name.toLowerCase());
+      const normalizedOtherLabels = targetLabels
+        .filter((tl) => tl !== label)
+        .map((tl) => tl.toLowerCase());
+      return (
+        issueLabels.includes(label.toLowerCase()) &&
+        !normalizedOtherLabels.some((otherLabel) =>
+          issueLabels.includes(otherLabel)
+        )
+      );
+    }).length;
+  });
+
+  console.log(
+    `Found ${issuesWithTargetLabels.length} issues with target labels.`
+  );
+
+  return {
+    totalClosedIssues: allIssues.length,
+    issuesWithAnyTargetLabel: issuesWithTargetLabels.length,
+    issuesWithAllTargetLabels: issuesWithAllLabels.length,
+    labelBreakdown,
+    onlySpecificLabel,
+    targetLabels,
+    issueDetails: issuesWithTargetLabels.map((issue) => ({
+      number: issue.number,
+      title: issue.title,
+      createdAt: issue.createdAt,
+      closedAt: issue.closedAt,
+      labels: issue.labels.nodes.map((label) => label.name),
+      author: issue.author ? issue.author.login : null,
+    })),
+  };
+}
+
+module.exports = { calculateMetrics, calculateIssueMetrics };
